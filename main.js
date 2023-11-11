@@ -12,9 +12,9 @@ let balls = []
 
 const DEFAULT_RADIUS = 10
 
-balls.push({positionOnLine: 397, radius: DEFAULT_RADIUS})
-balls.push({positionOnLine: 100, radius: DEFAULT_RADIUS})
-balls.push({positionOnLine: 400, radius: DEFAULT_RADIUS})
+balls.push({positionOnLine: 0, radius: DEFAULT_RADIUS})
+balls.push({positionOnLine: 0, radius: DEFAULT_RADIUS})
+balls.push({positionOnLine: 0, radius: DEFAULT_RADIUS})
 balls.push({positionOnLine: 0, radius: DEFAULT_RADIUS})
 balls.push({positionOnLine: 0, radius: DEFAULT_RADIUS})
 
@@ -30,6 +30,35 @@ brokenLine.push({x: 200, y: 200})
 brokenLine.push({x: 250, y: 250})
 brokenLine.push({x: 300, y: 250})
 brokenLine.push({x: 350, y: 200})
+
+function vec2(x = 0, y = 0) {
+    return { x, y }
+}
+
+function interpolate(v1, v2, t) {
+    return v1 + (v2 - v1) * t
+}
+
+function quadraticBezier(v1, v2, p3, t) {
+    return t * (t * (p3 - v2 * 2 + v1) + 2 * (v2 - v1)) + v1
+};
+
+function vec2distance(v1, v2) {
+    return Math.hypot((v2.x - v1.x), (v2.y - v1.y))
+}
+
+function vec2interpolate(v1, v2) {
+    return {
+        x: interpolate(v1.x, v2.x, t),
+        y: interpolate(v1.y, v2.y, t)
+    }
+}
+function vec2quadraticBezier(v1, v2, p3, t) {
+    return {
+        x: quadraticBezier(v1.x, v2.x, p3.x, t),
+        y: quadraticBezier(v1.y, v2.y, p3.y, t)
+    }
+}
 
 function asd(points, circles) {
     let result = []
@@ -113,7 +142,7 @@ function asd(points, circles) {
 
 let drawLoop = () => {
     context.clearRect(0, 0, canvas.width, canvas.height);
-    balls[0].positionOnLine += 0.5;
+    balls[0].positionOnLine += 0.1;
 
     let res = asd(brokenLine, balls)
     context.beginPath()
@@ -127,8 +156,40 @@ let drawLoop = () => {
         context.stroke()
     });
     console.log(res)
-    //requestAnimationFrame(drawLoop)
+    requestAnimationFrame(drawLoop)
 }
 
 drawLoop()
 document.body.onclick = drawLoop
+
+function quadraticBezierConverter(points) {
+    let curves = []
+    let t = 0.5
+    points.forEach((p, i) => {
+        let first = points[Math.max(0, i - 1)]
+        let second = p
+        let third = points[Math.min(points.length - 1, i + 1)]
+        curves.push([
+            {x: first.x + (second.x - first.x) * t, y: first.y + (second.y - first.y) * t},
+            second,
+            {x: second.x + (third.x - second.x) * t, y: second.y + (third.y - second.y) * t}
+        ])
+    })
+    
+    let result = [];
+    let quality = 1;
+
+    curves.forEach( curve => {
+        let sumlen = vec2distance(curve[0], curve[1]) + vec2distance(curve[1], curve[2])
+        let step = (1 / quality) / sumlen
+
+        for (let t = 0; t < 1; t += step) {
+            let point = vec2quadraticBezier(curve[0], curve[1], curve[2], t)
+            result.push(point)
+        }
+    })
+
+    return result
+}
+
+brokenLine = quadraticBezierConverter(brokenLine)
