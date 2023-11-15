@@ -13,17 +13,33 @@ let canvas = document.body.getElementsByTagName('canvas')[0];
 /** @type {CanvasRenderingContext2D} */
 let context = canvas.getContext('2d');
 
-/**@typedef {{positionOnLine: Number, radius: Number}} Ball */
+/**@typedef {{positionOnLine: Number, radius: Number, color: BallColor}} Ball */
 
 /** @type {[{x: Number, y: Number}]} */
 let brokenLine = []
 /** @type {[Ball]} */
 let balls = []
 
+/**
+ * @enum {string}
+ */
+var BallColor = {
+    RED: 'red',
+    BLUE: 'blue',
+    GREEN: 'green',
+};
+BallColor.values = Object.values(BallColor);
+BallColor.getRandomColor = function() {
+    const randomIndex = Math.floor(Math.random() * this.values.length);
+    return this.values[randomIndex];
+};
 const DEFAULT_RADIUS = 20
-for (let i = 0; i < 1000; i++) {
-    balls.push({positionOnLine: i, radius: DEFAULT_RADIUS})
+
+for (let i = 0; i < 10; i++) {
+    let randomColor = BallColor.getRandomColor()
+    balls.push({positionOnLine: i, radius: DEFAULT_RADIUS, color: randomColor})
 }
+
 
 /**
  * 
@@ -84,7 +100,7 @@ function zumaAlgorithm(points, circles) {
                     potentialPoint = vec2interpolate(line[0], line[1], resultPointRoot)
                     needOffset = sumLength + lineLength * resultPointRoot - circle.positionOnLine
                 }
-            }    
+            }
         }
 
         if (potentialPoint) {
@@ -103,6 +119,7 @@ function zumaAlgorithm(points, circles) {
 
 let drawLoop = () => {
     context.clearRect(0, 0, canvas.width, canvas.height);
+    
     balls[0].positionOnLine += 0.1;
 
     let res = zumaAlgorithm(brokenLine, balls)
@@ -113,13 +130,18 @@ let drawLoop = () => {
     context.stroke()
     res.forEach( c => {
         c.circle.positionOnLine += c.needOffset
+        context.save()
+        context.globalAlpha = 0.5
         context.beginPath()
         context.arc(c.pos.x, c.pos.y, c.circle.radius, 0, Math.PI * 2)
-        context.stroke()
+        context.fillStyle = c.circle.color
+        context.fill()
+        //context.stroke()
+        context.restore()
 
         context.save()
         context.beginPath()
-        context.strokeStyle = 'red'
+        context.strokeStyle = 'black'
         context.arc(c.pos.x, c.pos.y, 1, 0, Math.PI * 2)
         context.stroke()
         context.restore()
