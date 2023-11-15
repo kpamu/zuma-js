@@ -37,6 +37,45 @@ export class Zuma {
 
     /**
      * 
+     * @param {CanvasRenderingContext2D} context 
+     */
+    drawBalls(context) {
+        context.save()
+        this.balls.forEach( ball => {
+            context.save()
+            context.globalAlpha = 0.5
+            context.beginPath()
+            context.arc(ball.pos.x, ball.pos.y, ball.radius, 0, Math.PI * 2)
+            context.fillStyle = ball.color
+            context.fill()
+            context.restore()
+    
+            context.save()
+            context.beginPath()
+            context.strokeStyle = 'black'
+            context.arc(ball.pos.x, ball.pos.y, 1, 0, Math.PI * 2)
+            context.stroke()
+            context.restore()
+        })
+        context.restore()
+    }
+
+    /**
+     * 
+     * @param {CanvasRenderingContext2D} context 
+     */
+    drawPath(context) {
+        context.save()
+        context.beginPath()
+        this.brokenLine.forEach( ({x, y}) => {
+            context.lineTo(x, y)
+        })
+        context.stroke()
+        context.closePath()
+        context.restore()
+    }
+    /**
+     * 
      * @param {[vec2]} points 
      * @param {[Ball]} circles 
      * @returns {[{{needOffset: Number, circle: Ball, pos: vec2}}]}

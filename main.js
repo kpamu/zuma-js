@@ -90,32 +90,12 @@ let drawLoop = () => {
 
     let res = zuma.zumaAlgorithm(zuma.brokenLine, zuma.balls)
 
-    context.beginPath()
-    zuma.brokenLine.forEach( ({x, y}) => {
-        context.lineTo(x, y)
-    })
-    context.stroke()
-
-    
+    zuma.drawPath(context)
     res.forEach( c => {
         c.circle.positionOnLine += c.needOffset
         c.circle.pos = c.pos
-        
-        context.save()
-        context.globalAlpha = 0.5
-        context.beginPath()
-        context.arc(c.pos.x, c.pos.y, c.circle.radius, 0, Math.PI * 2)
-        context.fillStyle = c.circle.color
-        context.fill()
-        context.restore()
-
-        context.save()
-        context.beginPath()
-        context.strokeStyle = 'black'
-        context.arc(c.pos.x, c.pos.y, 1, 0, Math.PI * 2)
-        context.stroke()
-        context.restore()
     });
+    zuma.drawBalls(context)
 
     requestAnimationFrame(drawLoop)
 }
