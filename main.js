@@ -6,6 +6,9 @@ import {
     vec2quadraticBezier,
     vec2sub,
     vec2dot,
+    vec2normal,
+    vec2add,
+    vec2scale,
 } from './vec2.mjs'
 
 /** @type {HTMLCanvasElement} */
@@ -13,7 +16,10 @@ let canvas = document.body.getElementsByTagName('canvas')[0];
 /** @type {CanvasRenderingContext2D} */
 let context = canvas.getContext('2d');
 
-/**@typedef {{positionOnLine: Number, radius: Number, color: BallColor}} Ball */
+/**
+ * @typedef {{positionOnLine: Number, radius: Number, color: BallColor, pos?: vec2}} Ball
+ * @typedef {Ball & {flyDirection: vec2, speed: number, pos: vec2}} FlyingBall
+ */
 
 /** @type {[{x: Number, y: Number}]} */
 let brokenLine = []
@@ -40,6 +46,15 @@ for (let i = 0; i < 10; i++) {
     balls.push({positionOnLine: i, radius: DEFAULT_RADIUS, color: randomColor})
 }
 
+var gun = {
+    direction: vec2(1),
+    currentColor: BallColor.getRandomColor(),
+    nextColor: BallColor.getRandomColor(),
+    pos: vec2(200, 200),
+}
+
+/** @type {[FlyingBall]} */
+var flyingBalls = []
 
 /**
  * 
@@ -117,26 +132,73 @@ function zumaAlgorithm(points, circles) {
     return result
 }
 
+document.addEventListener('mousemove', event => {
+    let mousevec = vec2(event.offsetX, event.offsetY)
+    gun.direction = vec2normal(vec2sub(mousevec, gun.pos))
+})
+document.addEventListener('click', event => {
+    let currentColor = gun.currentColor
+    gun.currentColor = gun.nextColor
+    gun.nextColor = BallColor.getRandomColor()
+
+    flyingBalls.push({
+        color: currentColor,
+        radius: DEFAULT_RADIUS,
+        pos: gun.pos,
+        flyDirection: gun.direction,
+        speed: 1,
+    })
+})
+
 let drawLoop = () => {
     context.clearRect(0, 0, canvas.width, canvas.height);
     
     balls[0].positionOnLine += 0.1;
 
+    context.save()
+    context.beginPath()
+    context.translate(gun.pos.x, gun.pos.y)
+    context.arc(0, 0, DEFAULT_RADIUS, 0, Math.PI * 2)
+    context.fillStyle = gun.currentColor
+    context.fill()
+    context.stroke()
+    context.beginPath()
+    context.moveTo(gun.direction.x * DEFAULT_RADIUS, gun.direction.y * DEFAULT_RADIUS)
+    context.lineTo(gun.direction.x * (DEFAULT_RADIUS * 2), gun.direction.y * (DEFAULT_RADIUS * 2))
+    context.stroke()
+    context.restore()
+
+    flyingBalls.forEach( ball => {
+        ball.pos = vec2add(ball.pos, vec2scale(ball.flyDirection, ball.speed))
+
+        context.save()
+        context.globalAlpha = 0.5
+        context.beginPath()
+        context.arc(ball.pos.x, ball.pos.y, ball.radius, 0, Math.PI * 2)
+        context.fillStyle = ball.color
+        context.fill()
+        context.restore()
+    })
+
     let res = zumaAlgorithm(brokenLine, balls)
+
     context.beginPath()
     brokenLine.forEach( ({x, y}) => {
-        context.lineTo(x, y);
+        context.lineTo(x, y)
     })
     context.stroke()
+
+    
     res.forEach( c => {
         c.circle.positionOnLine += c.needOffset
+        c.circle.pos = c.pos
+        
         context.save()
         context.globalAlpha = 0.5
         context.beginPath()
         context.arc(c.pos.x, c.pos.y, c.circle.radius, 0, Math.PI * 2)
         context.fillStyle = c.circle.color
         context.fill()
-        //context.stroke()
         context.restore()
 
         context.save()
@@ -146,6 +208,7 @@ let drawLoop = () => {
         context.stroke()
         context.restore()
     });
+
     requestAnimationFrame(drawLoop)
 }
 
@@ -216,4 +279,3 @@ brokenLine = brokenLineEasyInit([
 brokenLine = quadraticBezierConverter(brokenLine)
 
 drawLoop()
-document.body.onclick = drawLoop
