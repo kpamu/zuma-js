@@ -24,7 +24,7 @@ BallColor.getRandomColor = function() {
 export const DEFAULT_RADIUS = 20
 
 /**
- * @typedef {{positionOnLine: Number, radius: Number, color: BallColor, pos?: vec2}} Ball
+ * @typedef {{radius: Number, color: BallColor}} Ball
  * @typedef {Ball & {flyDirection: vec2, speed: number, pos: vec2}} FlyingBall
  */
 
@@ -35,29 +35,41 @@ export class Zuma {
     /** @type {[Ball]} */
     balls = []
 
+    places = []
+
+    /**
+     * 
+     * @param {Ball} ball
+     * @param {CanvasRenderingContext2D} context  
+     */
+    drawBall(ball, context) {
+        context.save()
+        context.globalAlpha = 0.5
+        context.beginPath()
+        context.arc(0, 0, ball.radius, 0, Math.PI * 2)
+        context.fillStyle = ball.color
+        context.fill()
+        context.restore()
+
+        context.save()
+        context.beginPath()
+        context.strokeStyle = 'black'
+        context.arc(0, 0, 1, 0, Math.PI * 2)
+        context.stroke()
+        context.restore()
+    }
+
     /**
      * 
      * @param {CanvasRenderingContext2D} context 
      */
-    drawBalls(context) {
-        context.save()
-        this.balls.forEach( ball => {
+    drawVisibledBalls(context) {
+        this.places.filter( a => a ).forEach( place => {
             context.save()
-            context.globalAlpha = 0.5
-            context.beginPath()
-            context.arc(ball.pos.x, ball.pos.y, ball.radius, 0, Math.PI * 2)
-            context.fillStyle = ball.color
-            context.fill()
-            context.restore()
-    
-            context.save()
-            context.beginPath()
-            context.strokeStyle = 'black'
-            context.arc(ball.pos.x, ball.pos.y, 1, 0, Math.PI * 2)
-            context.stroke()
+            context.translate(place.point.x, place.point.y)
+            this.drawBall(place.circle, context)
             context.restore()
         })
-        context.restore()
     }
 
     /**
@@ -74,88 +86,123 @@ export class Zuma {
         context.closePath()
         context.restore()
     }
-    /**
-     * 
-     * @param {[vec2]} points 
-     * @param {[Ball]} circles 
-     * @returns {[{{needOffset: Number, circle: Ball, pos: vec2}}]}
-     */
-    zumaAlgorithm(points, circles) {
-        let result = []
 
-        let circleIndex = 0
-        let pointIndex = 1
-        
-        let lastResult = null
-        let line = [null, points[0]]
-        
-        let sumLength = 0
-        let lineLength = 0
-        while (pointIndex < points.length && circleIndex < circles.length) {
-            let circle = circles[circleIndex]
-            let point = points[pointIndex]
+    step() {
+        this.places = this.zumaAlgorithm()
+    }
 
-            if (lastResult === null && circle.positionOnLine < 0) {
-                circleIndex += 1
-                continue
+    zumaAlgorithm() {
+        let previewPlaceResult = null
+
+        return this.places.map( (place) => {
+            let result = null
+            
+            result = this.calculatePlace(place, this.brokenLine, previewPlaceResult)
+            
+            if (result) {
+                previewPlaceResult = result
             }
 
-            line = [line[1], point]
-            lineLength = vec2distance(line[0], line[1]);
+            return result
+        })
+    }
+    
+    searchSegment(state, brokenLine, conditionFn) {
+        state = {...state}
+        state.segment = state.segment.concat()
 
-            let potentialPoint = null
-            let needOffset = 0
+        while (true) {
+            if (conditionFn(state)) return state
+            if (++state.index >= brokenLine.length - 1) return null
+            state.segment[0] = brokenLine[state.index]
+            state.segment[1] = brokenLine[state.index + 1]
+            state.sumLength += state.length
+            state.length = vec2distance(state.segment[0], state.segment[1])
+        }
+    }
 
-            if (lineLength && sumLength + lineLength > circle.positionOnLine) {
-                potentialPoint = vec2interpolate(line[0], line[1], (circle.positionOnLine - sumLength) / lineLength)
+    triangleSolution({segment, length}, point, len1sq) {
+        let b = vec2sub(segment[1], segment[0])
+        let c = vec2sub(point, segment[0])
+        let projRoot = vec2dot(c, b) / (length * length)
+        let proj = vec2interpolate(segment[0], segment[1], projRoot)
+        let len0sq = vec2squareDistance(point, proj)
+        let len2 = Math.sqrt(Math.abs(len1sq - len0sq))
+        return projRoot + len2 / length
+    }
 
-                if (lastResult) {
-                    let len1sq = (circle.radius + lastResult.circle.radius) ** 2
+    searchPointAtBrokenLine(segmentState, brokenLine, requestPlace) {
+        let point
 
-                    let potentialPointIsCorrect = true
-                        && lastResult.circle.positionOnLine + lastResult.needOffset < circle.positionOnLine
-                        && vec2squareDistance(lastResult.pos, potentialPoint) > len1sq
+        let conditionFn = ({sumLength, length}) => sumLength + length > requestPlace.position
         
-                    if (!potentialPointIsCorrect) {
-                        potentialPoint = null
-                    }
+        segmentState = this.searchSegment(segmentState, brokenLine, conditionFn)
+        if (segmentState) {
+            let {sumLength, length, segment} = segmentState
+            
+            let root = (requestPlace.position - sumLength) / length
+            point = vec2interpolate(segment[0], segment[1], root)
+        }
+        return {point, segmentState}
+    }
 
-                    if (!potentialPointIsCorrect && vec2squareDistance(lastResult.pos, line[1]) > len1sq) {
-                        let b = vec2sub(line[1], line[0])
-                        let c = vec2sub(lastResult.pos, line[0])
-                        let projRoot = vec2dot(c, b) / (lineLength * lineLength)
-                        let proj = vec2interpolate(line[0], line[1], projRoot)
-                        
-                        let len0sq = vec2squareDistance(lastResult.pos, proj)
-                        let len2 = Math.sqrt(Math.abs(len1sq - len0sq))
-                        
-                        let resultPointRoot = projRoot + (len2 / lineLength)
-                        potentialPoint = vec2interpolate(line[0], line[1], resultPointRoot)
-                        needOffset = sumLength + lineLength * resultPointRoot - circle.positionOnLine
-                    }
-                }
-            }
+    extendSearchPointAtBrokenLine(segmentState, brokenLine, requestPlace, behindPlaceResult) {
+        let len1sq = (requestPlace.circle.radius + behindPlaceResult.circle.radius) ** 2
+        let point, needOffset
 
-            if (potentialPoint) {
-                result[circleIndex] = {circle: circle, pos: potentialPoint, needOffset: needOffset}
-                lastResult = result[circleIndex]
-                circleIndex += 1
-                line = [line[1], line[0]]
-            } else {
-                sumLength += lineLength
-                pointIndex += 1
+        let conditionFn = ({sumLength, length, segment}) => 
+            sumLength + length > Math.max(requestPlace.position, behindPlaceResult.position) &&
+            vec2squareDistance(behindPlaceResult.point, segment[1]) > len1sq
+
+        segmentState = this.searchSegment(segmentState, brokenLine, conditionFn)
+        if (segmentState) {
+            let {sumLength, length, segment} = segmentState
+        
+            let root = this.triangleSolution(segmentState, behindPlaceResult.point, len1sq)
+            point = vec2interpolate(segment[0], segment[1], root)
+            needOffset = sumLength + length * root - requestPlace.position
+        }
+        return {point, needOffset, segmentState}
+    }
+
+    calculatePlace(requestPlace, brokenLine, behindPlaceResult) {
+        let segmentState = behindPlaceResult?.segmentState ?? {
+            index: 0,
+            sumLength: 0,
+            length: vec2distance(brokenLine[0], brokenLine[1]),
+            segment: [brokenLine[0], brokenLine[1]],
+        }
+
+        let point
+        let needOffset = 0
+
+        if (!behindPlaceResult || requestPlace.position > behindPlaceResult.position) {
+            ({point, segmentState} = this.searchPointAtBrokenLine(segmentState, brokenLine, requestPlace))
+        }
+
+        if (behindPlaceResult) {
+            let len1sq = (requestPlace.circle.radius + behindPlaceResult.circle.radius) ** 2
+            if (!point || vec2squareDistance(point, behindPlaceResult.point) < len1sq) {
+                ({point, needOffset, segmentState} = this.extendSearchPointAtBrokenLine(segmentState, brokenLine, requestPlace, behindPlaceResult))
             }
         }
 
-        return result
+        return segmentState && {
+            circle: requestPlace.circle,
+            point,
+            offset: needOffset,
+            position: requestPlace.position + needOffset,
+            segmentState
+        }
     }
+
 
 }
 
 /**
  * 
  * @param {vec2} points 
- * @returns 
+ * @returns {vec2}
  */
 export function quadraticBezierConverter(points) {
     let curves = []
@@ -190,7 +237,7 @@ export function quadraticBezierConverter(points) {
 /**
  * 
  * @param {number} nums 
- * @returns 
+ * @returns {vec2} 
  */
 export function brokenLineEasyInit(nums) {
     let result = [];

@@ -24,9 +24,15 @@ let context = canvas.getContext('2d');
 
 let zuma = new Zuma()
 
-for (let i = 0; i < 10; i++) {
+for (let i = 0; i < 5; i++) {
     let randomColor = BallColor.getRandomColor()
-    zuma.balls.push({positionOnLine: i, radius: DEFAULT_RADIUS, color: randomColor})
+    zuma.balls.push({radius: DEFAULT_RADIUS, color: randomColor})
+}
+for (let i = 0; i < zuma.balls.length; i++) {
+    zuma.places.push({
+        circle: zuma.balls[i],
+        position: i * 70
+    })
 }
 
 var gun = {
@@ -40,11 +46,11 @@ var gun = {
 var flyingBalls = []
 flyingBalls[0]
 
-document.addEventListener('mousemove', event => {
+canvas.addEventListener('mousemove', event => {
     let mousevec = vec2(event.offsetX, event.offsetY)
     gun.direction = vec2normal(vec2sub(mousevec, gun.pos))
 })
-document.addEventListener('click', event => {
+canvas.addEventListener('click', event => {
     let currentColor = gun.currentColor
     gun.currentColor = gun.nextColor
     gun.nextColor = BallColor.getRandomColor()
@@ -61,7 +67,9 @@ document.addEventListener('click', event => {
 let drawLoop = () => {
     context.clearRect(0, 0, canvas.width, canvas.height);
     
-    zuma.balls[0].positionOnLine += 0.1;
+    if (zuma.places[0]) {
+        zuma.places[0].position += 0.1;
+    }
 
     context.save()
     context.beginPath()
@@ -76,26 +84,24 @@ let drawLoop = () => {
     context.stroke()
     context.restore()
 
-    flyingBalls.forEach( ball => {
-        ball.pos = vec2add(ball.pos, vec2scale(ball.flyDirection, ball.speed))
+    // flyingBalls.forEach( flyingBall => {
+    //     flyingBall.pos = vec2add(flyingBall.pos, vec2scale(flyingBall.flyDirection, flyingBall.speed))
 
-        context.save()
-        context.globalAlpha = 0.5
-        context.beginPath()
-        context.arc(ball.pos.x, ball.pos.y, ball.radius, 0, Math.PI * 2)
-        context.fillStyle = ball.color
-        context.fill()
-        context.restore()
-    })
+    //     zuma.visibledBalls.forEach( zumaBall => {
+    //         let distance = vec2distance(zumaBall.pos, flyingBall.pos)
+    //         let minDistance = zumaBall.radius + zumaBall.radius
+    //         if (distance < minDistance) {
+    //             console.log(1)
+    //         } 
+    //     })
 
-    let res = zuma.zumaAlgorithm(zuma.brokenLine, zuma.balls)
+    //     zuma.drawBall(flyingBall, context)
+    // })
+
+    zuma.step()
 
     zuma.drawPath(context)
-    res.forEach( c => {
-        c.circle.positionOnLine += c.needOffset
-        c.circle.pos = c.pos
-    });
-    zuma.drawBalls(context)
+    zuma.drawVisibledBalls(context)
 
     requestAnimationFrame(drawLoop)
 }
