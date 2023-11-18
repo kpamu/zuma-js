@@ -46,8 +46,11 @@ var gun = {
 var flyingBalls = []
 flyingBalls[0]
 
+
+let mousepos = vec2()
 canvas.addEventListener('mousemove', event => {
     let mousevec = vec2(event.offsetX, event.offsetY)
+    mousepos = mousevec
     gun.direction = vec2normal(vec2sub(mousevec, gun.pos))
 })
 canvas.addEventListener('click', event => {
@@ -68,7 +71,8 @@ let drawLoop = () => {
     context.clearRect(0, 0, canvas.width, canvas.height);
     
     if (zuma.places[0]) {
-        zuma.places[0].position += 0.1;
+        zuma.places[0].isManualControl = true;
+        zuma.places[0].point = mousepos
     }
 
     context.save()
