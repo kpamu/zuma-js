@@ -31,7 +31,8 @@ for (let i = 0; i < 5; i++) {
 for (let i = 0; i < zuma.balls.length; i++) {
     zuma.places.push({
         circle: zuma.balls[i],
-        position: i * 70
+        requestOffset: i * 70,
+        position: 0
     })
 }
 
@@ -70,11 +71,6 @@ canvas.addEventListener('click', event => {
 let drawLoop = () => {
     context.clearRect(0, 0, canvas.width, canvas.height);
     
-    if (zuma.places[0]) {
-        zuma.places[0].isManualControl = true;
-        zuma.places[0].point = mousepos
-    }
-
     context.save()
     context.beginPath()
     context.translate(gun.pos.x, gun.pos.y)
@@ -102,6 +98,12 @@ let drawLoop = () => {
     //     zuma.drawBall(flyingBall, context)
     // })
 
+    if (zuma.places[4]) {
+        zuma.places[4].requestOffset = -0.1
+        // zuma.places[0].isManualControl = true;
+        // zuma.places[0].point = mousepos
+        // zuma.places[0].sign = -1
+    }
     zuma.step()
 
     zuma.drawPath(context)
@@ -137,4 +139,5 @@ zuma.brokenLine = brokenLineEasyInit([
 
 zuma.brokenLine = quadraticBezierConverter(zuma.brokenLine)
 
+zuma.step()
 drawLoop()

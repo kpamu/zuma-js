@@ -94,10 +94,14 @@ export class Zuma {
     zumaAlgorithm() {
         let previewPlaceResult = null
 
+        if (!this.places[0].segmentState) {
+            this.places[0].segmentState = this.getStartSegmentState()
+        }
+
         return this.places.map( (place) => {
             let result = null
             
-            result = this.calculatePlace(place, this.brokenLine, previewPlaceResult)
+            result = this.calculatePlace(place, previewPlaceResult)
             
             if (result) {
                 previewPlaceResult = result
@@ -107,15 +111,24 @@ export class Zuma {
         })
     }
     
-    searchSegment(state, brokenLine, conditionFn) {
+    getStartSegmentState() {
+        return {
+            index: 0,
+            sumLength: 0,
+            length: vec2distance(this.brokenLine[0], this.brokenLine[1]),
+            segment: [this.brokenLine[0], this.brokenLine[1]],
+        }
+    }
+
+    searchSegment(state, conditionFn) {
         state = {...state}
-        state.segment = state.segment.concat()
+        state.segment = [...state.segment]
 
         while (true) {
             if (conditionFn(state)) return state
-            if (++state.index >= brokenLine.length - 1) return null
-            state.segment[0] = brokenLine[state.index]
-            state.segment[1] = brokenLine[state.index + 1]
+            if (++state.index >= this.brokenLine.length - 1) return null
+            state.segment[0] = this.brokenLine[state.index]
+            state.segment[1] = this.brokenLine[state.index + 1]
             state.sumLength += state.length
             state.length = vec2distance(state.segment[0], state.segment[1])
         }
@@ -131,72 +144,66 @@ export class Zuma {
         return projRoot + len2 / length
     }
 
-    searchPointAtBrokenLine(segmentState, brokenLine, requestPlace) {
+    searchPointAtBrokenLine(segmentState, requestPlace) {
         let point
 
-        let conditionFn = ({sumLength, length}) => sumLength + length > requestPlace.position
+        let conditionFn = ({sumLength, length}) => sumLength + length > requestPlace.position + requestPlace.requestOffset
         
-        segmentState = this.searchSegment(segmentState, brokenLine, conditionFn)
+        segmentState = this.searchSegment(segmentState, conditionFn)
         if (segmentState) {
             let {sumLength, length, segment} = segmentState
             
-            let root = (requestPlace.position - sumLength) / length
+            let root = (requestPlace.position + requestPlace.requestOffset - sumLength) / length
             point = vec2interpolate(segment[0], segment[1], root)
         }
         return {point, segmentState}
     }
 
-    extendSearchPointAtBrokenLine(segmentState, brokenLine, requestPlace, behindPlace) {
+    extendSearchPointAtBrokenLine(segmentState, requestPlace, behindPlace) {
         let len1sq = (requestPlace.circle.radius + behindPlace.circle.radius) ** 2
-        let point, needOffset
+        let point
+        let resultOffset
 
-        let conditionFn = ({sumLength, length, segment}) => 
-            sumLength + length > Math.max(requestPlace.position, behindPlace.position) &&
-            vec2squareDistance(behindPlace.point, segment[1]) > len1sq
+        let conditionFn = ({segment}) => vec2squareDistance(behindPlace.point, segment[1]) > len1sq
 
-        segmentState = this.searchSegment(segmentState, brokenLine, conditionFn)
+        segmentState = this.searchSegment(segmentState, conditionFn)
         if (segmentState) {
             let {sumLength, length, segment} = segmentState
         
             let root = this.triangleSolution(segmentState, behindPlace.point, len1sq)
             point = vec2interpolate(segment[0], segment[1], root)
-            needOffset = sumLength + length * root - requestPlace.position
+            resultOffset = sumLength + length * root - requestPlace.position - requestPlace.requestOffset
         }
-        return {point, needOffset, segmentState}
+        return {point, resultOffset, segmentState}
     }
 
-    calculatePlace(requestPlace, brokenLine, behindPlace) {
-        let segmentState = behindPlace?.segmentState ?? {
-            index: 0,
-            sumLength: 0,
-            length: vec2distance(brokenLine[0], brokenLine[1]),
-            segment: [brokenLine[0], brokenLine[1]],
+    calculatePlace(requestPlace, behindPlace) {
+        let segmentState = requestPlace.segmentState
+        if (behindPlace && requestPlace.position <= behindPlace.position) {
+            segmentState = behindPlace.segmentState
         }
 
         let point
-        let needOffset = 0
-        
-        if (requestPlace.isManualControl) {
-            return requestPlace
-        }
+        let resultOffset = 0
 
-        if (!behindPlace || behindPlace.isManualControl || requestPlace.position > behindPlace.position) {
-            ({point, segmentState} = this.searchPointAtBrokenLine(segmentState, brokenLine, requestPlace))
+        if (!behindPlace || behindPlace.isManualControl || requestPlace.position + requestPlace.requestOffset > behindPlace.position) {
+            ({point, segmentState} = this.searchPointAtBrokenLine(segmentState, requestPlace))
         }
 
         if (behindPlace) {
             let len1sq = (requestPlace.circle.radius + behindPlace.circle.radius) ** 2
             if (!point || vec2squareDistance(point, behindPlace.point) < len1sq) {
-                ({point, needOffset, segmentState} = this.extendSearchPointAtBrokenLine(segmentState, brokenLine, requestPlace, behindPlace))
+                ({point, resultOffset, segmentState} = this.extendSearchPointAtBrokenLine(segmentState, requestPlace, behindPlace))
             }
         }
 
         return segmentState && {
             circle: requestPlace.circle,
             point,
-            offset: needOffset,
-            position: requestPlace.position + needOffset,
-            segmentState
+            position: requestPlace.position + requestPlace.requestOffset + resultOffset,
+            
+            requestOffset: 0,
+            segmentState,
         }
     }
 
