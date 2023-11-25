@@ -31,8 +31,7 @@ for (let i = 0; i < 5; i++) {
 for (let i = 0; i < zuma.balls.length; i++) {
     zuma.places.push({
         circle: zuma.balls[i],
-        requestOffset: i * 70,
-        position: 0
+        position: i * 70 + 300
     })
 }
 
@@ -48,7 +47,7 @@ var flyingBalls = []
 flyingBalls[0]
 
 
-let mousepos = vec2()
+let mousepos = vec2(500, 500)
 canvas.addEventListener('mousemove', event => {
     let mousevec = vec2(event.offsetX, event.offsetY)
     mousepos = mousevec
@@ -99,10 +98,10 @@ let drawLoop = () => {
     // })
 
     if (zuma.places[4]) {
-        zuma.places[4].requestOffset = -0.1
-        // zuma.places[0].isManualControl = true;
-        // zuma.places[0].point = mousepos
-        // zuma.places[0].sign = -1
+        zuma.places[0].position += 1
+        zuma.places[4].position -= 0.1
+        // zuma.places[1].isManualControl = true;
+        // zuma.places[1].point = mousepos
     }
     zuma.step()
 

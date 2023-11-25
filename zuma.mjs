@@ -5,7 +5,8 @@ import {
     vec2squareDistance,
     vec2sub,
     vec2dot,
-    vec2quadraticBezier
+    vec2quadraticBezier,
+    vec2scale
 } from './vec2.mjs'
 
 /**
@@ -94,14 +95,10 @@ export class Zuma {
     zumaAlgorithm() {
         let previewPlaceResult = null
 
-        if (!this.places[0].segmentState) {
-            this.places[0].segmentState = this.getStartSegmentState()
-        }
+        let segmentState = this.getStartSegmentState()
 
-        return this.places.map( (place) => {
-            let result = null
-            
-            result = this.calculatePlace(place, previewPlaceResult)
+        let positive = this.places.map( (place) => {
+            let result = this.calculatePlace(place, previewPlaceResult, segmentState, 1)
             
             if (result) {
                 previewPlaceResult = result
@@ -109,6 +106,23 @@ export class Zuma {
 
             return result
         })
+
+        this.searchSegment(segmentState, () => false, 1)
+        previewPlaceResult = null
+
+        let negative = positive.reverse().map( (place) => {
+            let result = this.calculatePlace(place, previewPlaceResult, segmentState, -1)
+            
+            if (result) {
+                previewPlaceResult = result
+            }
+
+            return result
+        })
+
+        negative.reverse()
+
+        return negative
     }
     
     getStartSegmentState() {
@@ -117,20 +131,26 @@ export class Zuma {
             sumLength: 0,
             length: vec2distance(this.brokenLine[0], this.brokenLine[1]),
             segment: [this.brokenLine[0], this.brokenLine[1]],
+            sign: 1
         }
     }
 
-    searchSegment(state, conditionFn) {
-        state = {...state}
-        state.segment = [...state.segment]
+    searchSegment(state, conditionFn, sign) {
+        if (sign !== state.sign) {
+            state.segment.reverse()
+            state.sign = sign
+            state.length = -state.length
+            state.sumLength -= state.length
+        }
 
         while (true) {
             if (conditionFn(state)) return state
-            if (++state.index >= this.brokenLine.length - 1) return null
-            state.segment[0] = this.brokenLine[state.index]
-            state.segment[1] = this.brokenLine[state.index + 1]
+            state.index += sign
+            if (state.index < 0 || state.index >= this.brokenLine.length - 1) return null
+            state.segment[0] = this.brokenLine[state.index + (sign < 0)]
+            state.segment[1] = this.brokenLine[state.index + (sign > 0)]
             state.sumLength += state.length
-            state.length = vec2distance(state.segment[0], state.segment[1])
+            state.length = vec2distance(state.segment[0], state.segment[1]) * sign
         }
     }
 
@@ -141,69 +161,45 @@ export class Zuma {
         let proj = vec2interpolate(segment[0], segment[1], projRoot)
         let len0sq = vec2squareDistance(point, proj)
         let len2 = Math.sqrt(Math.abs(len1sq - len0sq))
-        return projRoot + len2 / length
+        return projRoot + len2 / Math.abs(length)
     }
 
-    searchPointAtBrokenLine(segmentState, requestPlace) {
-        let point
-
-        let conditionFn = ({sumLength, length}) => sumLength + length > requestPlace.position + requestPlace.requestOffset
-        
-        segmentState = this.searchSegment(segmentState, conditionFn)
-        if (segmentState) {
-            let {sumLength, length, segment} = segmentState
-            
-            let root = (requestPlace.position + requestPlace.requestOffset - sumLength) / length
-            point = vec2interpolate(segment[0], segment[1], root)
-        }
-        return {point, segmentState}
-    }
-
-    extendSearchPointAtBrokenLine(segmentState, requestPlace, behindPlace) {
-        let len1sq = (requestPlace.circle.radius + behindPlace.circle.radius) ** 2
-        let point
-        let resultOffset
-
-        let conditionFn = ({segment}) => vec2squareDistance(behindPlace.point, segment[1]) > len1sq
-
-        segmentState = this.searchSegment(segmentState, conditionFn)
-        if (segmentState) {
-            let {sumLength, length, segment} = segmentState
-        
-            let root = this.triangleSolution(segmentState, behindPlace.point, len1sq)
-            point = vec2interpolate(segment[0], segment[1], root)
-            resultOffset = sumLength + length * root - requestPlace.position - requestPlace.requestOffset
-        }
-        return {point, resultOffset, segmentState}
-    }
-
-    calculatePlace(requestPlace, behindPlace) {
-        let segmentState = requestPlace.segmentState
-        if (behindPlace && requestPlace.position <= behindPlace.position) {
-            segmentState = behindPlace.segmentState
+    calculatePlace(place, behindPlace, segmentState, sign = 1) {
+        if (place.position < 0 && sign > 0 || place.isManualControl) {
+            return place
         }
 
         let point
         let resultOffset = 0
 
-        if (!behindPlace || behindPlace.isManualControl || requestPlace.position + requestPlace.requestOffset > behindPlace.position) {
-            ({point, segmentState} = this.searchPointAtBrokenLine(segmentState, requestPlace))
+        if (!behindPlace || behindPlace.isManualControl || place.position * sign > behindPlace.position * sign) {
+            let conditionFn = ({sumLength, length}) => (sumLength + length) * sign > place.position * sign
+        
+            segmentState = this.searchSegment(segmentState, conditionFn, sign)
+            if (segmentState) {
+                let root = (place.position - segmentState.sumLength) / segmentState.length
+                point = vec2interpolate(segmentState.segment[0], segmentState.segment[1], root)
+            }
         }
 
         if (behindPlace) {
-            let len1sq = (requestPlace.circle.radius + behindPlace.circle.radius) ** 2
+            let len1sq = (place.circle.radius + behindPlace.circle.radius) ** 2
             if (!point || vec2squareDistance(point, behindPlace.point) < len1sq) {
-                ({point, resultOffset, segmentState} = this.extendSearchPointAtBrokenLine(segmentState, requestPlace, behindPlace))
+                let conditionFn = ({segment}) => vec2squareDistance(behindPlace.point, segment[1]) > len1sq
+        
+                segmentState = this.searchSegment(segmentState, conditionFn, sign)
+                if (segmentState) {
+                    let root = this.triangleSolution(segmentState, behindPlace.point, len1sq)
+                    point = vec2interpolate(segmentState.segment[0], segmentState.segment[1], root)
+                    resultOffset = segmentState.sumLength + segmentState.length * root - place.position
+                }
             }
         }
 
         return segmentState && {
-            circle: requestPlace.circle,
+            circle: place.circle,
             point,
-            position: requestPlace.position + requestPlace.requestOffset + resultOffset,
-            
-            requestOffset: 0,
-            segmentState,
+            position: place.position + resultOffset
         }
     }
 
@@ -230,7 +226,7 @@ export function quadraticBezierConverter(points) {
     })
     
     let result = [];
-    let quality = 1;
+    let quality = 0.01;
 
     curves.forEach( curve => {
         let sumlen = vec2distance(curve[0], curve[1]) + vec2distance(curve[1], curve[2])
