@@ -110,7 +110,8 @@ let drawLoop = () => {
     requestAnimationFrame(drawLoop)
 }
 zuma.slices[0].speed = 0.1
-zuma.slices[4].speed = -0.1
+zuma.slices[3].speed = -0.1
+zuma.slices[4].speed = -1
 
 zuma.brokenLine = brokenLineEasyInit([
     -DEFAULT_RADIUS, 100,

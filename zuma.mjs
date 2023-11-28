@@ -69,12 +69,12 @@ export class Zuma {
      * @param {CanvasRenderingContext2D} context 
      */
     drawVisibledBalls(context) {
-        this.balls.forEach( ball => {
+        this.slices.forEach( slice => slice.balls.forEach( ball => {
             context.save()
             context.translate(ball.x, ball.y)
             this.drawBall(ball, context)
             context.restore()
-        })
+        }))
     }
 
     /**
@@ -97,64 +97,46 @@ export class Zuma {
     }
 
     zumaAlgorithm() {
-        let previewBall = null
+        let behindBall = null
 
         let segmentState = this.getStartSegmentState()
 
-        let sliceIterateDirection = 1
-        for (let sliceIndex = 0; sliceIndex < this.slices.length && sliceIndex >= 0; sliceIndex += sliceIterateDirection) {
-            let slice = this.slices[sliceIndex]
+        let handleIteration = (slice, iterator) => {
+            let sign = iterator.sign
 
             let isContact = false
             let needSkip = false
-            if (slice.speed < 0 && sliceIterateDirection > 0) {
+            if (slice.speed < 0 && sign > 0) {
                 needSkip = true
-                previewBall = null
+                behindBall = null
             }
 
             if (!needSkip) {
-                let firstBallIndex = 0
-                let lastBallIndex = slice.balls.length - 1
-                if (sliceIterateDirection < 0) {
-                    firstBallIndex = lastBallIndex
-                    lastBallIndex = 0
+                if (sign > 0 && slice.speed > 0 || sign < 0 && slice.speed < 0) {
+                    let firstBall = this.getBallsIterator(slice, sign).next().value
+                    firstBall.position += slice.speed
                 }
-                let ballIndex = firstBallIndex
-                if (sliceIterateDirection > 0 && slice.speed > 0 || sliceIterateDirection < 0 && slice.speed < 0) {
-                    slice.balls[ballIndex].position += slice.speed
+                let outOfLine;
+                ({ behindBall, isContact, outOfLine } = this.slicePlace(slice, behindBall, segmentState, sign))
+                if (outOfLine) {
+                    let ball = this.popBall(slice, iterator)
                 }
-                
-                while (ballIndex < slice.balls.length && ballIndex >= 0) {
-                    let ball = slice.balls[ballIndex]
-    
-                    let resultOffset = this.calculatePlace(ball, previewBall, segmentState, sliceIterateDirection)
-    
-                    if (ballIndex === firstBallIndex && resultOffset !== 0) {
-                        isContact = true
-                    }
-                    
-                    previewBall = ball
-                    ballIndex += sliceIterateDirection
-                }
+            } else {
+                this.slicePlace(slice, null, segmentState, sign)
             }
 
             if (isContact) {
-                if (sliceIterateDirection > 0) {
-                    this.slices[sliceIndex - 1].balls.push(...slice.balls)
-                    this.slices.splice(sliceIndex, 1)
-                    sliceIndex--
-                } else {
-                    this.slices[sliceIndex + 1].balls.unshift(...slice.balls)
-                    this.slices.splice(sliceIndex, 1)
-                }
+                this.mergeSlices(iterator)
             }
+        }
 
-            if (sliceIndex === this.slices.length - 1 && sliceIterateDirection > 0) {
-                sliceIterateDirection = -1
-                sliceIndex += 1
-                previewBall = null
-                this.searchSegment(segmentState, () => false, 1)
-            }
+        for (let [iterator, slice] of this.getSlicesIterator(this.slices, 1)) {
+            handleIteration(slice, iterator)
+        }
+        behindBall = null
+
+        for (let [iterator, slice] of this.getSlicesIterator(this.slices, -1)) {
+            handleIteration(slice, iterator)
         }
     }
     
@@ -173,13 +155,13 @@ export class Zuma {
             state.segment.reverse()
             state.sign = sign
             state.length = -state.length
-            state.sumLength -= state.length * 2
+            state.sumLength -= state.length
         }
 
         while (true) {
             if (conditionFn(state)) return state
+            if (state.index + sign < 0 || state.index + sign >= this.brokenLine.length - 1) return null
             state.index += sign
-            if (state.index < 0 || state.index >= this.brokenLine.length - 1) return null
             state.segment[0] = this.brokenLine[state.index + (sign < 0)]
             state.segment[1] = this.brokenLine[state.index + (sign > 0)]
             state.sumLength += state.length
@@ -197,7 +179,7 @@ export class Zuma {
         return projRoot + len2 / Math.abs(length)
     }
 
-    calculatePlace(ball, behindBall, segmentState, sign = 1) {
+    calculatePlace(ball, behindBall, segmentState, sign) {
         let point
         let resultOffset = 0
 
@@ -209,26 +191,96 @@ export class Zuma {
             }
         }
 
-        if (behindBall) {
-            let len1sq = (ball.radius + behindBall.radius) ** 2
-            if (!point || vec2squareDistance(point, behindBall) < len1sq) {
-                let conditionFn = ({segment}) => vec2squareDistance(behindBall, segment[1]) > len1sq
-                if (this.searchSegment(segmentState, conditionFn, sign)) {
-                    let root = this.triangleSolution(segmentState, behindBall, len1sq)
-                    point = vec2interpolate(segmentState.segment[0], segmentState.segment[1], root)
-                    resultOffset = segmentState.sumLength + segmentState.length * root - ball.position
-                }
+        let len1sq = behindBall && (ball.radius + behindBall.radius) ** 2
+        if (len1sq && (!point || vec2squareDistance(point, behindBall) < len1sq)) {
+            let conditionFn = ({segment}) => vec2squareDistance(behindBall, segment[1]) > len1sq
+            if (this.searchSegment(segmentState, conditionFn, sign)) {
+                let root = this.triangleSolution(segmentState, behindBall, len1sq)
+                point = vec2interpolate(segmentState.segment[0], segmentState.segment[1], root)
+                resultOffset = segmentState.sumLength + segmentState.length * root - ball.position
+            } else {
+                point = null
             }
         }
 
-        if (point) {
-            vec2setvec2(ball, point)
-            ball.position = ball.position + resultOffset
-            return resultOffset
+        return {
+            point, resultOffset
         }
     }
 
+    slicePlace(slice, behindBall, segmentState, sign) {
+        let isContact = false
 
+        let firstBallFlag = true
+        for (let ball of this.getBallsIterator(slice, sign)) {
+            let {point: newPoint, resultOffset} = this.calculatePlace(ball, behindBall, segmentState, sign)
+
+            if (!newPoint) {
+                return {outOfLine: true}
+            }
+            
+            vec2setvec2(ball, newPoint)
+            ball.position = ball.position + resultOffset
+
+            if (firstBallFlag && resultOffset !== 0) {
+                isContact = true
+            }
+
+            firstBallFlag = false
+            behindBall = ball
+        }
+
+        return { behindBall, isContact }
+    }
+
+    getSlicesIterator(slices, sign) {
+        let iterator = {
+            index: sign > 0 ? 0 : this.slices.length - 1,
+            sign,
+            slices
+        }
+        iterator[Symbol.iterator] = function*() {
+            for (;iterator.index < this.slices.length && iterator.index >= 0; iterator.index += iterator.sign) {
+                yield [iterator, this.slices[iterator.index]]
+            }
+        }
+        return iterator
+    }
+
+    *getBallsIterator(slice, sign) {
+        if (sign < 0) {
+            return yield *slice.balls.toReversed()
+        } else {
+            return yield *slice.balls
+        }
+    }
+
+    mergeSlices(iterator) {
+        let behindSlice = iterator.slices[iterator.index - iterator.sign]
+        let slice = iterator.slices[iterator.index]
+
+        iterator.slices.splice(iterator.index, 1)
+        if (iterator.sign > 0) {
+            behindSlice.balls.push(...slice.balls)
+            iterator.index--
+        } else {
+            behindSlice.balls.unshift(...slice.balls)
+        }
+    }
+
+    popBall(slice, iterator) {
+        let ball
+        if (iterator.sign > 0) {
+            ball = slice.balls.pop()
+        } else {
+            ball = slice.balls.shift()
+        }
+
+        if (slice.balls.length === 0) {
+            iterator.slices.splice(iterator.index, 1)
+        }
+        return ball
+    }
 }
 
 /**
