@@ -6,7 +6,8 @@ import {
     vec2sub,
     vec2dot,
     vec2quadraticBezier,
-    vec2scale
+    vec2scale,
+    vec2setvec2
 } from './vec2.mjs'
 
 /**
@@ -25,22 +26,25 @@ BallColor.getRandomColor = function() {
 export const DEFAULT_RADIUS = 20
 
 /**
- * @typedef {{radius: Number, color: BallColor}} Ball
- * @typedef {Ball & {flyDirection: vec2, speed: number, pos: vec2}} FlyingBall
+ * @typedef {vec2 & {radius: Number, color: BallColor, position: Number}} ZumaBall
+ * @typedef {ZumaBall & {flyDirection: vec2, speed: number, pos: vec2}} FlyingBall
+ * @typedef {{balls: [ZumaBall], speed: Number}} Slice
  */
 
 export class Zuma {
 
     /** @type {[{x: Number, y: Number}]} */
     brokenLine = []
-    /** @type {[Ball]} */
+
+    /** @type {[ZumaBall]} */
     balls = []
 
-    places = []
+    /** @type {[Slice]} */
+    slices = []
 
     /**
      * 
-     * @param {Ball} ball
+     * @param {ZumaBall} ball
      * @param {CanvasRenderingContext2D} context  
      */
     drawBall(ball, context) {
@@ -65,10 +69,10 @@ export class Zuma {
      * @param {CanvasRenderingContext2D} context 
      */
     drawVisibledBalls(context) {
-        this.places.filter( a => a ).forEach( place => {
+        this.balls.forEach( ball => {
             context.save()
-            context.translate(place.point.x, place.point.y)
-            this.drawBall(place.circle, context)
+            context.translate(ball.x, ball.y)
+            this.drawBall(ball, context)
             context.restore()
         })
     }
@@ -89,40 +93,69 @@ export class Zuma {
     }
 
     step() {
-        this.places = this.zumaAlgorithm()
+        this.zumaAlgorithm()
     }
 
     zumaAlgorithm() {
-        let previewPlaceResult = null
+        let previewBall = null
 
         let segmentState = this.getStartSegmentState()
 
-        let positive = this.places.map( (place) => {
-            let result = this.calculatePlace(place, previewPlaceResult, segmentState, 1)
-            
-            if (result) {
-                previewPlaceResult = result
+        let sliceIterateDirection = 1
+        for (let sliceIndex = 0; sliceIndex < this.slices.length && sliceIndex >= 0; sliceIndex += sliceIterateDirection) {
+            let slice = this.slices[sliceIndex]
+
+            let isContact = false
+            let needSkip = false
+            if (slice.speed < 0 && sliceIterateDirection > 0) {
+                needSkip = true
+                previewBall = null
             }
 
-            return result
-        })
-
-        this.searchSegment(segmentState, () => false, 1)
-        previewPlaceResult = null
-
-        let negative = positive.reverse().map( (place) => {
-            let result = this.calculatePlace(place, previewPlaceResult, segmentState, -1)
-            
-            if (result) {
-                previewPlaceResult = result
+            if (!needSkip) {
+                let firstBallIndex = 0
+                let lastBallIndex = slice.balls.length - 1
+                if (sliceIterateDirection < 0) {
+                    firstBallIndex = lastBallIndex
+                    lastBallIndex = 0
+                }
+                let ballIndex = firstBallIndex
+                if (sliceIterateDirection > 0 && slice.speed > 0 || sliceIterateDirection < 0 && slice.speed < 0) {
+                    slice.balls[ballIndex].position += slice.speed
+                }
+                
+                while (ballIndex < slice.balls.length && ballIndex >= 0) {
+                    let ball = slice.balls[ballIndex]
+    
+                    let resultOffset = this.calculatePlace(ball, previewBall, segmentState, sliceIterateDirection)
+    
+                    if (ballIndex === firstBallIndex && resultOffset !== 0) {
+                        isContact = true
+                    }
+                    
+                    previewBall = ball
+                    ballIndex += sliceIterateDirection
+                }
             }
 
-            return result
-        })
+            if (isContact) {
+                if (sliceIterateDirection > 0) {
+                    this.slices[sliceIndex - 1].balls.push(...slice.balls)
+                    this.slices.splice(sliceIndex, 1)
+                    sliceIndex--
+                } else {
+                    this.slices[sliceIndex + 1].balls.unshift(...slice.balls)
+                    this.slices.splice(sliceIndex, 1)
+                }
+            }
 
-        negative.reverse()
-
-        return negative
+            if (sliceIndex === this.slices.length - 1 && sliceIterateDirection > 0) {
+                sliceIterateDirection = -1
+                sliceIndex += 1
+                previewBall = null
+                this.searchSegment(segmentState, () => false, 1)
+            }
+        }
     }
     
     getStartSegmentState() {
@@ -140,7 +173,7 @@ export class Zuma {
             state.segment.reverse()
             state.sign = sign
             state.length = -state.length
-            state.sumLength -= state.length
+            state.sumLength -= state.length * 2
         }
 
         while (true) {
@@ -164,42 +197,34 @@ export class Zuma {
         return projRoot + len2 / Math.abs(length)
     }
 
-    calculatePlace(place, behindPlace, segmentState, sign = 1) {
-        if (place.position < 0 && sign > 0 || place.isManualControl) {
-            return place
-        }
-
+    calculatePlace(ball, behindBall, segmentState, sign = 1) {
         let point
         let resultOffset = 0
 
-        if (!behindPlace || behindPlace.isManualControl || place.position * sign > behindPlace.position * sign) {
-            let conditionFn = ({sumLength, length}) => (sumLength + length) * sign > place.position * sign
-        
-            segmentState = this.searchSegment(segmentState, conditionFn, sign)
-            if (segmentState) {
-                let root = (place.position - segmentState.sumLength) / segmentState.length
+        if (!behindBall || behindBall.isManualControl || ball.position * sign > behindBall.position * sign) {
+            let conditionFn = ({sumLength, length}) => (sumLength + length) * sign > ball.position * sign
+            if (this.searchSegment(segmentState, conditionFn, sign)) {
+                let root = (ball.position - segmentState.sumLength) / segmentState.length
                 point = vec2interpolate(segmentState.segment[0], segmentState.segment[1], root)
             }
         }
 
-        if (behindPlace) {
-            let len1sq = (place.circle.radius + behindPlace.circle.radius) ** 2
-            if (!point || vec2squareDistance(point, behindPlace.point) < len1sq) {
-                let conditionFn = ({segment}) => vec2squareDistance(behindPlace.point, segment[1]) > len1sq
-        
-                segmentState = this.searchSegment(segmentState, conditionFn, sign)
-                if (segmentState) {
-                    let root = this.triangleSolution(segmentState, behindPlace.point, len1sq)
+        if (behindBall) {
+            let len1sq = (ball.radius + behindBall.radius) ** 2
+            if (!point || vec2squareDistance(point, behindBall) < len1sq) {
+                let conditionFn = ({segment}) => vec2squareDistance(behindBall, segment[1]) > len1sq
+                if (this.searchSegment(segmentState, conditionFn, sign)) {
+                    let root = this.triangleSolution(segmentState, behindBall, len1sq)
                     point = vec2interpolate(segmentState.segment[0], segmentState.segment[1], root)
-                    resultOffset = segmentState.sumLength + segmentState.length * root - place.position
+                    resultOffset = segmentState.sumLength + segmentState.length * root - ball.position
                 }
             }
         }
 
-        return segmentState && {
-            circle: place.circle,
-            point,
-            position: place.position + resultOffset
+        if (point) {
+            vec2setvec2(ball, point)
+            ball.position = ball.position + resultOffset
+            return resultOffset
         }
     }
 
@@ -226,7 +251,7 @@ export function quadraticBezierConverter(points) {
     })
     
     let result = [];
-    let quality = 0.01;
+    let quality = 0.02;
 
     curves.forEach( curve => {
         let sumlen = vec2distance(curve[0], curve[1]) + vec2distance(curve[1], curve[2])

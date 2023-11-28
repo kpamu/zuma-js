@@ -35,6 +35,27 @@ export function vec2(x = 0, y = 0) {
 }
 
 /**
+ * Sets the x and y coordinates of the vector to the specified values.
+ * @param {vec2} v - The vector to modify.
+ * @param {Number} x - The new x-coordinate.
+ * @param {Number} y - The new y-coordinate.
+ */
+export function vec2set(v, x, y) {
+    v.x = x;
+    v.y = y;
+}
+
+/**
+ * Sets the x and y coordinates of the target vector to the values of the source vector.
+ * @param {vec2} target - The vector to modify.
+ * @param {vec2} source - The vector from which to copy the values.
+ */
+export function vec2setvec2(target, source) {
+    target.x = source.x;
+    target.y = source.y;
+}
+
+/**
  * Subtracts v2 from v1 and returns the result as a new 2D vector.
  * @param {vec2} v1 
  * @param {vec2} v2 

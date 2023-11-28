@@ -29,9 +29,10 @@ for (let i = 0; i < 5; i++) {
     zuma.balls.push({radius: DEFAULT_RADIUS, color: randomColor})
 }
 for (let i = 0; i < zuma.balls.length; i++) {
-    zuma.places.push({
-        circle: zuma.balls[i],
-        position: i * 70 + 300
+    zuma.balls[i].position = i * 70 + 100
+    zuma.slices.push({
+        balls: [zuma.balls[i]],
+        speed: 0
     })
 }
 
@@ -97,12 +98,10 @@ let drawLoop = () => {
     //     zuma.drawBall(flyingBall, context)
     // })
 
-    if (zuma.places[4]) {
-        zuma.places[0].position += 1
-        zuma.places[4].position -= 0.1
+    // if (zuma.places[4]) {
         // zuma.places[1].isManualControl = true;
         // zuma.places[1].point = mousepos
-    }
+    // }
     zuma.step()
 
     zuma.drawPath(context)
@@ -110,6 +109,8 @@ let drawLoop = () => {
 
     requestAnimationFrame(drawLoop)
 }
+zuma.slices[0].speed = 0.1
+zuma.slices[4].speed = -0.1
 
 zuma.brokenLine = brokenLineEasyInit([
     -DEFAULT_RADIUS, 100,
