@@ -7,6 +7,8 @@ import {
     vec2normal,
     vec2add,
     vec2scale,
+    vec2setvec2,
+    vec2cross,
 } from './vec2.mjs'
 
 import {
@@ -24,16 +26,14 @@ let context = canvas.getContext('2d');
 
 let zuma = new Zuma()
 
-for (let i = 0; i < 5; i++) {
+zuma.slices.push({balls: [], speed: 0.1})
+
+for (let i = 0; i < 30; i++) {
     let randomColor = BallColor.getRandomColor()
-    zuma.balls.push({radius: DEFAULT_RADIUS, color: randomColor})
-}
-for (let i = 0; i < zuma.balls.length; i++) {
-    zuma.balls[i].position = i * 70 + 100
-    zuma.slices.push({
-        balls: [zuma.balls[i]],
-        speed: 0
-    })
+    let ball = {radius: DEFAULT_RADIUS, color: randomColor}
+    ball.position = DEFAULT_RADIUS * 2 * -i - DEFAULT_RADIUS + 1300
+
+    zuma.slices[0].balls.unshift(ball)
 }
 
 var gun = {
@@ -45,8 +45,6 @@ var gun = {
 
 /** @type {[import('./zuma.mjs').FlyingBall]} */
 var flyingBalls = []
-flyingBalls[0]
-
 
 let mousepos = vec2(500, 500)
 canvas.addEventListener('mousemove', event => {
@@ -62,7 +60,8 @@ canvas.addEventListener('click', event => {
     flyingBalls.push({
         color: currentColor,
         radius: DEFAULT_RADIUS,
-        pos: gun.pos,
+        x: gun.pos.x,
+        y: gun.pos.y,
         flyDirection: gun.direction,
         speed: 1,
     })
@@ -84,19 +83,58 @@ let drawLoop = () => {
     context.stroke()
     context.restore()
 
-    // flyingBalls.forEach( flyingBall => {
-    //     flyingBall.pos = vec2add(flyingBall.pos, vec2scale(flyingBall.flyDirection, flyingBall.speed))
+    flyingBalls.forEach( flyingBall => {
+        vec2setvec2(flyingBall, vec2add(flyingBall, vec2scale(flyingBall.flyDirection, flyingBall.speed)))
+        
+        let balls = zuma.slices.reduce((p, slice) => {
+            p.push(...slice.balls.map( (ball, index) => {
+                return {slice, ball, index}
+            }))
+            return p
+        }, [])
+        balls.filter( ({ball}) => ball.position > 0).forEach( ({slice, ball: visibleBall, index}, _, _array) => {
+            let distance = vec2distance(visibleBall, flyingBall)
+            let minDistance = visibleBall.radius + flyingBall.radius
+            if (distance < minDistance) {
+                let indexModifier = +(vec2cross(vec2sub(flyingBall, visibleBall), visibleBall.perpendicular) > 0)
 
-    //     zuma.visibledBalls.forEach( zumaBall => {
-    //         let distance = vec2distance(zumaBall.pos, flyingBall.pos)
-    //         let minDistance = zumaBall.radius + zumaBall.radius
-    //         if (distance < minDistance) {
-    //             console.log(1)
-    //         } 
-    //     })
+                flyingBall.position = slice.balls[0].position
+                slice.balls.splice(index + indexModifier, 0, flyingBall)
+                flyingBalls.splice(flyingBalls.indexOf(flyingBall), 1)
+                
+                delete flyingBall.speed
+                delete flyingBall.flyDirection
+                _array.length = 0
 
-    //     zuma.drawBall(flyingBall, context)
-    // })
+                let leftIndex = index + indexModifier
+                let rightIndex = index + indexModifier
+                while(leftIndex - 1 >= 0 && slice.balls[leftIndex - 1].color === slice.balls[rightIndex].color) {
+                    leftIndex--
+                }
+                while(rightIndex + 1 < slice.balls.length && slice.balls[leftIndex].color === slice.balls[rightIndex + 1].color) {
+                    rightIndex++
+                }
+
+                let cutLength = rightIndex - leftIndex + 1
+                if (cutLength >= 3) {
+                    slice.balls.splice(leftIndex, cutLength)
+                    if (leftIndex !== 0 && leftIndex !== slice.balls.length - 1) {
+                        let sliceIndex = zuma.slices.indexOf(slice)
+                        let newSlice = {
+                            balls: slice.balls.splice(leftIndex, slice.balls.length - leftIndex),
+                            speed: 0
+                        }
+                        zuma.slices.splice(sliceIndex + 1, 0, newSlice)
+                    }
+                }
+            }
+        })
+        
+        context.save()
+        context.translate(flyingBall.x, flyingBall.y)
+        zuma.drawBall(flyingBall, context)
+        context.restore()
+    })
 
     // if (zuma.places[4]) {
         // zuma.places[1].isManualControl = true;
@@ -109,9 +147,6 @@ let drawLoop = () => {
 
     requestAnimationFrame(drawLoop)
 }
-zuma.slices[0].speed = 0.1
-zuma.slices[3].speed = -0.1
-zuma.slices[4].speed = -1
 
 zuma.brokenLine = brokenLineEasyInit([
     -DEFAULT_RADIUS, 100,

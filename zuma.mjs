@@ -7,7 +7,8 @@ import {
     vec2dot,
     vec2quadraticBezier,
     vec2scale,
-    vec2setvec2
+    vec2setvec2,
+    vec2perpendicular
 } from './vec2.mjs'
 
 /**
@@ -27,7 +28,7 @@ export const DEFAULT_RADIUS = 20
 
 /**
  * @typedef {vec2 & {radius: Number, color: BallColor, position: Number}} ZumaBall
- * @typedef {ZumaBall & {flyDirection: vec2, speed: number, pos: vec2}} FlyingBall
+ * @typedef {ZumaBall & {flyDirection: vec2, speed: number}} FlyingBall
  * @typedef {{balls: [ZumaBall], speed: Number}} Slice
  */
 
@@ -35,9 +36,6 @@ export class Zuma {
 
     /** @type {[{x: Number, y: Number}]} */
     brokenLine = []
-
-    /** @type {[ZumaBall]} */
-    balls = []
 
     /** @type {[Slice]} */
     slices = []
@@ -62,6 +60,15 @@ export class Zuma {
         context.arc(0, 0, 1, 0, Math.PI * 2)
         context.stroke()
         context.restore()
+
+        if (ball.perpendicular) {
+            context.save()
+            context.moveTo(0, 0)
+            context.scale(10, 10)
+            context.lineTo(ball.perpendicular.x, ball.perpendicular.y)
+            context.restore()
+            context.stroke()
+        }
     }
 
     /**
@@ -104,38 +111,36 @@ export class Zuma {
         let handleIteration = (slice, iterator) => {
             let sign = iterator.sign
 
-            let isContact = false
-            let needSkip = false
-            if (slice.speed < 0 && sign > 0) {
-                needSkip = true
-                behindBall = null
-            }
+            let outOfLine
+            let isContact
 
-            if (!needSkip) {
+            if (!(slice.speed < 0 && sign > 0)) {
                 if (sign > 0 && slice.speed > 0 || sign < 0 && slice.speed < 0) {
                     let firstBall = this.getBallsIterator(slice, sign).next().value
                     firstBall.position += slice.speed
                 }
-                let outOfLine;
                 ({ behindBall, isContact, outOfLine } = this.slicePlace(slice, behindBall, segmentState, sign))
-                if (outOfLine) {
-                    let ball = this.popBall(slice, iterator)
-                }
             } else {
+                behindBall = null
                 this.slicePlace(slice, null, segmentState, sign)
             }
-
+            
+            if (outOfLine && sign > 0) {
+                // end game
+            }
             if (isContact) {
-                this.mergeSlices(iterator)
+                this.mergeSlices(slice, iterator)
             }
         }
 
-        for (let [iterator, slice] of this.getSlicesIterator(this.slices, 1)) {
+        let iterator = this.getSlicesIterator(this.slices, 1)
+        for (let slice of iterator) {
             handleIteration(slice, iterator)
         }
+        iterator.reverse()
         behindBall = null
 
-        for (let [iterator, slice] of this.getSlicesIterator(this.slices, -1)) {
+        for (let slice of iterator) {
             handleIteration(slice, iterator)
         }
     }
@@ -180,14 +185,17 @@ export class Zuma {
     }
 
     calculatePlace(ball, behindBall, segmentState, sign) {
+        let root
         let point
+        let perpendicular
         let resultOffset = 0
 
         if (!behindBall || behindBall.isManualControl || ball.position * sign > behindBall.position * sign) {
             let conditionFn = ({sumLength, length}) => (sumLength + length) * sign > ball.position * sign
             if (this.searchSegment(segmentState, conditionFn, sign)) {
-                let root = (ball.position - segmentState.sumLength) / segmentState.length
+                root = (ball.position - segmentState.sumLength) / segmentState.length
                 point = vec2interpolate(segmentState.segment[0], segmentState.segment[1], root)
+                
             }
         }
 
@@ -195,7 +203,7 @@ export class Zuma {
         if (len1sq && (!point || vec2squareDistance(point, behindBall) < len1sq)) {
             let conditionFn = ({segment}) => vec2squareDistance(behindBall, segment[1]) > len1sq
             if (this.searchSegment(segmentState, conditionFn, sign)) {
-                let root = this.triangleSolution(segmentState, behindBall, len1sq)
+                root = this.triangleSolution(segmentState, behindBall, len1sq)
                 point = vec2interpolate(segmentState.segment[0], segmentState.segment[1], root)
                 resultOffset = segmentState.sumLength + segmentState.length * root - ball.position
             } else {
@@ -203,9 +211,11 @@ export class Zuma {
             }
         }
 
-        return {
-            point, resultOffset
+        if (point) {
+            perpendicular = vec2perpendicular(vec2scale(vec2sub(point, segmentState.segment[0]), 1 / (segmentState.length * root)))
         }
+
+        return { point, resultOffset, perpendicular }
     }
 
     slicePlace(slice, behindBall, segmentState, sign) {
@@ -213,14 +223,15 @@ export class Zuma {
 
         let firstBallFlag = true
         for (let ball of this.getBallsIterator(slice, sign)) {
-            let {point: newPoint, resultOffset} = this.calculatePlace(ball, behindBall, segmentState, sign)
+            let {point, resultOffset, perpendicular} = this.calculatePlace(ball, behindBall, segmentState, sign)
 
-            if (!newPoint) {
-                return {outOfLine: true}
+            if (!point) {
+                return { outOfLine: true }
             }
             
-            vec2setvec2(ball, newPoint)
+            vec2setvec2(ball, point)
             ball.position = ball.position + resultOffset
+            ball.perpendicular = perpendicular
 
             if (firstBallFlag && resultOffset !== 0) {
                 isContact = true
@@ -237,11 +248,15 @@ export class Zuma {
         let iterator = {
             index: sign > 0 ? 0 : this.slices.length - 1,
             sign,
-            slices
+            slices,
+            reverse() {
+                this.index -= this.sign
+                this.sign = -1
+            }
         }
         iterator[Symbol.iterator] = function*() {
             for (;iterator.index < this.slices.length && iterator.index >= 0; iterator.index += iterator.sign) {
-                yield [iterator, this.slices[iterator.index]]
+                yield this.slices[iterator.index]
             }
         }
         return iterator
@@ -255,9 +270,8 @@ export class Zuma {
         }
     }
 
-    mergeSlices(iterator) {
+    mergeSlices(slice, iterator) {
         let behindSlice = iterator.slices[iterator.index - iterator.sign]
-        let slice = iterator.slices[iterator.index]
 
         iterator.slices.splice(iterator.index, 1)
         if (iterator.sign > 0) {
@@ -266,20 +280,6 @@ export class Zuma {
         } else {
             behindSlice.balls.unshift(...slice.balls)
         }
-    }
-
-    popBall(slice, iterator) {
-        let ball
-        if (iterator.sign > 0) {
-            ball = slice.balls.pop()
-        } else {
-            ball = slice.balls.shift()
-        }
-
-        if (slice.balls.length === 0) {
-            iterator.slices.splice(iterator.index, 1)
-        }
-        return ball
     }
 }
 
@@ -303,7 +303,7 @@ export function quadraticBezierConverter(points) {
     })
     
     let result = [];
-    let quality = 0.02;
+    let quality = 1;
 
     curves.forEach( curve => {
         let sumlen = vec2distance(curve[0], curve[1]) + vec2distance(curve[1], curve[2])
