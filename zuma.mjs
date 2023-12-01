@@ -8,7 +8,9 @@ import {
     vec2quadraticBezier,
     vec2scale,
     vec2setvec2,
-    vec2perpendicular
+    vec2perpendicular,
+    vec2add,
+    vec2cross
 } from './vec2.mjs'
 
 /**
@@ -39,6 +41,62 @@ export class Zuma {
 
     /** @type {[Slice]} */
     slices = []
+
+    /** @type {[FlyingBall]} */
+    flyingBalls = []
+
+    gun = {
+        direction: vec2(1),
+        currentColor: BallColor.getRandomColor(),
+        nextColor: BallColor.getRandomColor(),
+        pos: vec2(200, 200),
+    }
+
+    draw(context) {
+        this.drawPath(context)
+        this.drawGun(context)
+        this.drawVisibledBalls(context)
+        this.drawFlyingBalls(context)
+    }
+
+    gunShot(context) {
+        let currentColor = this.gun.currentColor
+        this.gun.currentColor = this.gun.nextColor
+        this.gun.nextColor = BallColor.getRandomColor()
+
+        this.flyingBalls.push({
+            color: currentColor,
+            radius: DEFAULT_RADIUS,
+            x: this.gun.pos.x,
+            y: this.gun.pos.y,
+            flyDirection: this.gun.direction,
+            speed: 1,
+        })
+    }
+
+    drawGun(context) {
+        context.save()
+        context.beginPath()
+        context.translate(this.gun.pos.x, this.gun.pos.y)
+        context.arc(0, 0, DEFAULT_RADIUS, 0, Math.PI * 2)
+        context.fillStyle = this.gun.currentColor
+        context.fill()
+        context.stroke()
+        context.beginPath()
+        context.moveTo(this.gun.direction.x * DEFAULT_RADIUS, this.gun.direction.y * DEFAULT_RADIUS)
+        context.lineTo(this.gun.direction.x * (DEFAULT_RADIUS * 2), this.gun.direction.y * (DEFAULT_RADIUS * 2))
+        context.stroke()
+        context.restore()
+    }
+
+    drawFlyingBalls(context) {
+        this.flyingBalls.forEach( flyingBall => {
+            context.save()
+            context.translate(flyingBall.x, flyingBall.y)
+            this.drawBall(flyingBall, context)
+            context.restore()
+        })
+    }
 
     /**
      * 
@@ -100,7 +158,58 @@ export class Zuma {
     }
 
     step() {
+        this.stepFlyingBalls()
         this.zumaAlgorithm()
+    }
+
+    stepFlyingBalls() {
+        this.flyingBalls.forEach( flyingBall => {
+            vec2setvec2(flyingBall, vec2add(flyingBall, vec2scale(flyingBall.flyDirection, flyingBall.speed)))
+            
+            let balls = this.slices.reduce((p, slice) => {
+                p.push(...slice.balls.map( (ball, index) => {
+                    return {slice, ball, index}
+                }))
+                return p
+            }, [])
+            balls.filter( ({ball}) => ball.position > 0).forEach( ({slice, ball: visibleBall, index}, _, _array) => {
+                let distance = vec2distance(visibleBall, flyingBall)
+                let minDistance = visibleBall.radius + flyingBall.radius
+                if (distance < minDistance) {
+                    let indexModifier = +(vec2cross(vec2sub(flyingBall, visibleBall), visibleBall.perpendicular) > 0)
+    
+                    flyingBall.position = slice.balls[0].position
+                    slice.balls.splice(index + indexModifier, 0, flyingBall)
+                    this.flyingBalls.splice(this.flyingBalls.indexOf(flyingBall), 1)
+                    
+                    delete flyingBall.speed
+                    delete flyingBall.flyDirection
+                    _array.length = 0
+    
+                    let leftIndex = index + indexModifier
+                    let rightIndex = index + indexModifier
+                    while(leftIndex - 1 >= 0 && slice.balls[leftIndex - 1].color === slice.balls[rightIndex].color) {
+                        leftIndex--
+                    }
+                    while(rightIndex + 1 < slice.balls.length && slice.balls[leftIndex].color === slice.balls[rightIndex + 1].color) {
+                        rightIndex++
+                    }
+    
+                    let cutLength = rightIndex - leftIndex + 1
+                    if (cutLength >= 3) {
+                        slice.balls.splice(leftIndex, cutLength)
+                        if (leftIndex !== 0 && leftIndex !== slice.balls.length - 1) {
+                            let sliceIndex = this.slices.indexOf(slice)
+                            let newSlice = {
+                                balls: slice.balls.splice(leftIndex, slice.balls.length - leftIndex),
+                                speed: 0
+                            }
+                            this.slices.splice(sliceIndex + 1, 0, newSlice)
+                        }
+                    }
+                }
+            })
+        })
     }
 
     zumaAlgorithm() {
@@ -116,7 +225,7 @@ export class Zuma {
 
             if (!(slice.speed < 0 && sign > 0)) {
                 if (sign > 0 && slice.speed > 0 || sign < 0 && slice.speed < 0) {
-                    let firstBall = this.getBallsIterator(slice, sign).next().value
+                    let [firstBall] = this.getBallsIterator(slice, sign)
                     firstBall.position += slice.speed
                 }
                 ({ behindBall, isContact, outOfLine } = this.slicePlace(slice, behindBall, segmentState, sign))
